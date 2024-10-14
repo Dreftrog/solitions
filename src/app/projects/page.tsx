@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -8,32 +8,128 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useProjects } from '@/components/ProjectContext'
 import { Project } from '@/models/Project'
+import Chart from 'chart.js/auto'
+
+const initialProjectState: Omit<Project, '_id' | 'createdAt' | 'updatedAt'> = {
+  name: '',
+  description: '',
+  client: '',
+  value: 0,
+  status: 'En Progreso',
+  progress: 0,
+  startDate: new Date(),
+  progressByStage: {
+    design: 0,
+    development: 0,
+    testing: 0,
+    documentation: 0
+  },
+  tasks: {
+    completed: 0,
+    inProgress: 0,
+    pending: 0
+  }
+}
 
 export default function ProjectsPage() {
   const { projects, addProject, isLoading } = useProjects()
-  const [newProject, setNewProject] = useState<Omit<Project, '_id' | 'createdAt' | 'updatedAt'>>({ 
-    name: '', 
-    description: '', 
-    client: '', 
-    value: 0, 
-    status: 'En Progreso',
-    progress: 0,
-    startDate: new Date(),
-  })
+  const [newProject, setNewProject] = useState<Omit<Project, '_id' | 'createdAt' | 'updatedAt'>>(initialProjectState)
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const progressChartRef = useRef<HTMLCanvasElement>(null)
+  const tasksChartRef = useRef<HTMLCanvasElement>(null)
 
   const handleAddProject = async (e: React.FormEvent) => {
     e.preventDefault()
     await addProject(newProject)
-    setNewProject({ 
-      name: '', 
-      description: '', 
-      client: '', 
-      value: 0, 
-      status: 'En Progreso', 
-      progress: 0,
-      startDate: new Date(),
-    })
+    setNewProject(initialProjectState)
   }
+
+  useEffect(() => {
+    if (selectedProject && progressChartRef.current && tasksChartRef.current) {
+      const progressChart = new Chart(progressChartRef.current, {
+        type: 'bar',
+        data: {
+          labels: ['Diseño', 'Desarrollo', 'Pruebas', 'Documentación'],
+          datasets: [{
+            label: 'Progreso (%)',
+            data: [
+              selectedProject.progressByStage.design,
+              selectedProject.progressByStage.development,
+              selectedProject.progressByStage.testing,
+              selectedProject.progressByStage.documentation
+            ],
+            backgroundColor: [
+              'rgba(255, 99, 132, 0.6)',
+              'rgba(54, 162, 235, 0.6)',
+              'rgba(255, 206, 86, 0.6)',
+              'rgba(75, 192, 192, 0.6)'
+            ],
+            borderColor: [
+              'rgba(255, 99, 132, 1)',
+              'rgba(54, 162, 235, 1)',
+              'rgba(255, 206, 86, 1)',
+              'rgba(75, 192, 192, 1)'
+            ],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Progreso del Proyecto por Etapas'
+            }
+          }
+        }
+      })
+
+      const tasksChart = new Chart(tasksChartRef.current, {
+        type: 'pie',
+        data: {
+          labels: ['Completadas', 'En Progreso', 'Pendientes'],
+          datasets: [{
+            data: [
+              selectedProject.tasks.completed,
+              selectedProject.tasks.inProgress,
+              selectedProject.tasks.pending
+            ],
+            backgroundColor: [
+              'rgba(75, 192, 192, 0.6)',
+              'rgba(255, 206, 86, 0.6)',
+              'rgba(255, 99, 132, 0.6)'
+            ],
+            borderColor: [
+              'rgba(75, 192, 192, 1)',
+              'rgba(255, 206, 86, 1)',
+              'rgba(255, 99, 132, 1)'
+            ],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            title: {
+              display: true,
+              text: 'Estado de las Tareas'
+            }
+          }
+        }
+      })
+
+      return () => {
+        progressChart.destroy()
+        tasksChart.destroy()
+      }
+    }
+  }, [selectedProject])
 
   if (isLoading) {
     return <div>Cargando proyectos...</div>
@@ -90,15 +186,6 @@ export default function ProjectsPage() {
                   <SelectItem value="Cancelado">Cancelado</SelectItem>
                 </SelectContent>
               </Select>
-              <Input
-                type="number"
-                placeholder="Progreso (%)"
-                value={newProject.progress}
-                onChange={(e) => setNewProject({ ...newProject, progress: Number(e.target.value) })}
-                required
-                min="0"
-                max="100"
-              />
               <Button type="submit">Agregar Proyecto</Button>
             </form>
           </DialogContent>
@@ -113,6 +200,7 @@ export default function ProjectsPage() {
             <TableHead>Valor</TableHead>
             <TableHead>Estado</TableHead>
             <TableHead>Progreso</TableHead>
+            <TableHead>Acciones</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -123,10 +211,27 @@ export default function ProjectsPage() {
               <TableCell>${project.value}</TableCell>
               <TableCell>{project.status}</TableCell>
               <TableCell>{project.progress}%</TableCell>
+              <TableCell>
+                <Button onClick={() => setSelectedProject(project)}>Ver Avances</Button>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+
+      {selectedProject && (
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold mb-4">Avances de {selectedProject.name}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <canvas ref={progressChartRef}></canvas>
+            </div>
+            <div>
+              <canvas ref={tasksChartRef}></canvas>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
